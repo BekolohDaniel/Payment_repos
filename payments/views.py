@@ -1,4 +1,5 @@
 from rest_framework.generics import CreateAPIView, RetrieveAPIView, ListAPIView
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 import os
@@ -10,6 +11,22 @@ from payments.models import Payment
 from .serializers import PaymentSerializer, PaymentVerificationSerializer, PaymentListSerializer
 
 load_dotenv()  # Load environment variables from a .env file if present
+
+
+from django.http import JsonResponse
+
+def home(request):
+    return JsonResponse({
+        "message": "Welcome to Payment API!",
+        "available_paths": {
+            "Admin": "/admin/",
+            "List Payments": "/api/v1/payments/",
+            "Initiate Payment": "/api/v1/payment/",
+            "Verify Payment": "/api/v1/payment/verify/<reference>/",
+        },
+        "note": "Replace <reference> with your actual payment reference."
+    })
+
 
 class PaymentView(CreateAPIView):
     queryset = Payment.objects.all()
@@ -32,46 +49,50 @@ class PaymentView(CreateAPIView):
         )
     
 
-class PaymentVerificationView(RetrieveAPIView):
-    queryset = Payment.objects.all()
-    serializer_class = PaymentVerificationSerializer
-    lookup_field = "reference"
-    lookup_url_kwarg = "reference"
-
-
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()  # fetch payment by reference
+class PaymentVerificationView(APIView):
+    def get(self, request, *args, **kwargs):
+        reference = request.query_params.get("reference") or request.query_params.get("trxref")
+        if not reference:
+            return Response({"detail": "No reference provided."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Call Paystack verify endpoint
         headers = {
             'Authorization': f'Bearer {os.getenv("TEST_SECRET_KEY")}',
         }
         response = requests.get(
-            f"{os.getenv('VERIFY_URL')}/{instance.reference}",
+            f"{os.getenv('VERIFY_URL')}/{reference}",
             headers=headers,
             timeout=10
         )
-
         response_data = response.json()
+
         if response.status_code != 200 or not response_data.get('status'):
             return Response(
                 {"detail": "Failed to verify transaction with Paystack."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Update payment status
+        # Update payment in DB
+        try:
+            instance = Payment.objects.get(reference=reference)
+        except Payment.DoesNotExist:
+            return Response({"detail": "Payment not found."}, status=status.HTTP_404_NOT_FOUND)
+
         data = response_data.get('data', {})
         if data.get('status') == 'success':
             instance.status = 'successful'
-            amount_paid = Decimal(data.get('amount', 0)) / 100  # kobo → naira
-            instance.amount_received = amount_paid
+            instance.amount_received = Decimal(data.get('amount', 0)) / 100  # kobo → naira
         else:
             instance.status = 'failed'
 
         instance.save(update_fields=['status', 'amount_received'])
 
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response({
+            "reference": reference,
+            "status": instance.status,
+            "amount_received": str(instance.amount_received),
+        }, status=status.HTTP_200_OK)
+
 
 
 class PaymentListAllTransactionView(ListAPIView):
