@@ -38,7 +38,9 @@ jobs:
 
     - name: Run Tests
       env:
-        DATABASE_URL: postgres://user:password@localhost:5432/testdb
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        DEBUG: 'True'
       run: |
         python manage.py migrate
         python manage.py test
