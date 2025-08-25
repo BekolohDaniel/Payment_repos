@@ -42,14 +42,3 @@ jobs:
       run: |
         python manage.py migrate
         python manage.py test
-
-  deploy:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-    - name: Deploy to Render
-      run: |
-        curl -X POST "https://api.render.com/deploy/srv-${{ secrets.RENDER_SERVICE_ID }}/deploys" \
-        -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-        -H "Accept: application/json" \
-        -d ''
