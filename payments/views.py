@@ -5,6 +5,7 @@ import os
 import requests
 from decimal import Decimal
 from dotenv import load_dotenv
+from django.http import Http404
 
 from payments.models import Payment
 from .serializers import PaymentSerializer, PaymentVerificationSerializer, PaymentListSerializer
@@ -53,6 +54,18 @@ class PaymentVerificationView(RetrieveAPIView):
     serializer_class = PaymentVerificationSerializer
     lookup_field = "reference"
     lookup_url_kwarg = "reference"
+
+    def get_object(self):
+        """
+        Override to support both path param and query param 'reference'.
+        """
+        reference = self.kwargs.get(self.lookup_url_kwarg) 
+        if not reference:
+            raise Http404("Payment reference not provided.")
+        try:
+            return Payment.objects.get(reference=reference)
+        except Payment.DoesNotExist:
+            raise Http404("Payment not found.")
 
 
     def retrieve(self, request, *args, **kwargs):
