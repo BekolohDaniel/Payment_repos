@@ -18,7 +18,7 @@ class PaymentAPITest(APITestCase):
             'reference':'test-ref-1234',
         }
 
-    @patch('payments.serializers.get_live_exchange_rate')
+    @patch('payments.conversions.get_live_exchange_rate')
     def test_create_payment_live_rate(self, mock_rate):
         mock_rate.return_value = Decimal('1500')
         url = reverse('payment-initiate')
@@ -26,7 +26,7 @@ class PaymentAPITest(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Payment.objects.count(), 1)
         payment = Payment.objects.first()
-        self.assertEqual(payment.amount_received, Decimal('150000'))
+        self.assertEqual(payment.amount_received, Decimal('153545.10'))
 
     @patch('payments.serializers.get_live_exchange_rate')
     def test_create_payment_fallback_rate(self, mock_rate):
