@@ -179,7 +179,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             'amount': int(amount_ngn * 100),  # in kobo
             'reference': payment.reference,
             'currency': 'NGN',  # Paystack only accepts NGN for now
-            'callback_url': 'https://yourdomain.com/payments/callback/',  # Replace with your actual callback URL
+            'callback_url': f'https://payment-repos.onrender.com/api/v1/payment/verify/{payment.reference}',  # Replace with your actual callback URL
             'metadata': {
                 'name': payment.name,
                 'phone_number': payment.phone_number,
