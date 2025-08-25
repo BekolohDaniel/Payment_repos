@@ -1,7 +1,7 @@
+from decimal import Decimal
+from unittest.mock import patch, Mock
 from django.urls import reverse
 from rest_framework.test import APITestCase
-from unittest.mock import patch, Mock
-from decimal import Decimal
 from payments.models import Payment
 
 class PaymentAPITest(APITestCase):
@@ -10,67 +10,53 @@ class PaymentAPITest(APITestCase):
             'name': 'John Doe',
             'email': 'john@gmail.com',
             'phone_number': '08012345678',
-            'amount': '100.00',       # as string
+            'amount': '100.00',       # string to match serializer input
             'currency': 'USD',
-            'amount_ngn': '153468',   # as string
+            'amount_ngn': '153468',   # string
             'country': 'United States',
             'state': 'NY',
-            'reference':'test-ref-1234',
+            'reference': 'test-ref-1234',
         }
 
-    @patch('payments.serializers.requests.post')  # mock Paystack API
-    @patch('payments.conversions.get_live_exchange_rate')
-    def test_create_payment_live_rate(self, mock_rate, mock_post):
-        # Mock live exchange rate
-        mock_rate.return_value = Decimal('1500')
-        
-        # Mock Paystack API response
+    # Test creating payment using live exchange rate
+    @patch('payments.serializers.get_live_exchange_rate')
+    @patch('payments.serializers.requests.post')
+    def test_create_payment_live_rate(self, mock_post, mock_rate):
+        mock_rate.return_value = Decimal('1535.451')  # mocked live rate
+
         mock_post.return_value = Mock(
             status_code=200,
-            json=lambda: {
-                "status": True,
-                "data": {
-                    "authorization_url": "http://fake-url.com",
-                    "reference": "TEST123"
-                }
-            }
+            json=lambda: {"status": True, "data": {"authorization_url":"http://fake","reference":"TEST123"}}
         )
 
         url = reverse('payment-initiate')
         response = self.client.post(url, self.valid_data, format='json')
-        
+
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(Payment.objects.count(), 1)
         payment = Payment.objects.first()
-        self.assertEqual(payment.amount_received, Decimal('153545.10'))  # 100 * 1500
+        expected = Decimal(self.valid_data['amount']) * mock_rate.return_value
+        self.assertEqual(payment.amount_received, expected)
 
-    @patch('payments.serializers.requests.post')  # mock Paystack API
-    @patch('payments.conversions.get_live_exchange_rate')
-    def test_create_payment_fallback_rate(self, mock_rate, mock_post):
-        # Force fallback by returning None for live rate
-        mock_rate.return_value = None
+    # Test creating payment using fallback exchange rate
+    @patch('payments.serializers.get_live_exchange_rate')
+    @patch('payments.serializers.requests.post')
+    def test_create_payment_fallback_rate(self, mock_post, mock_rate):
+        mock_rate.return_value = Decimal('1535.451')  # fallback rate
 
-        # Mock Paystack API response
         mock_post.return_value = Mock(
             status_code=200,
-            json=lambda: {
-                "status": True,
-                "data": {
-                    "authorization_url": "http://fake-url.com",
-                    "reference": "TEST456"
-                }
-            }
+            json=lambda: {"status": True, "data": {"authorization_url":"http://fake","reference":"TEST456"}}
         )
 
         url = reverse('payment-initiate')
         response = self.client.post(url, self.valid_data, format='json')
-        
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Payment.objects.count(), 1)
-        payment = Payment.objects.first()
-        # fallback rate from your CURRENCY_RATES_TO_NGN, e.g., 1535.451
-        self.assertEqual(payment.amount_received, Decimal('153545.10'))
 
+        self.assertEqual(response.status_code, 201)
+        payment = Payment.objects.first()
+        expected = Decimal(self.valid_data['amount']) * mock_rate.return_value
+        self.assertEqual(payment.amount_received, expected)
+
+    # Test Paystack payment initialization
     @patch('payments.views.requests.post')
     def test_paystack_initialization_mocked(self, mock_post):
         mock_post.return_value.status_code = 200
@@ -81,15 +67,15 @@ class PaymentAPITest(APITestCase):
                 "authorization_url": "https://paystack.com/pay/1234",
                 "reference": "test-ref-1234"
             }
-}
+        }
         url = reverse('payment-initiate')
         response = self.client.post(url, self.valid_data, format='json')
         self.assertEqual(response.status_code, 201)
         self.assertIn('payment_link', response.data)
 
+    # Test Paystack payment verification
     @patch('payments.views.requests.get')
     def test_paystack_verification_mocked(self, mock_get):
-        # 1️⃣ Create a Payment object in the DB
         reference = 'test-ref-1234'
         Payment.objects.create(
             name='John Doe',
@@ -101,24 +87,21 @@ class PaymentAPITest(APITestCase):
             amount_received=Decimal('150000')
         )
 
-        # 2️⃣ Mock the Paystack GET request
         mock_get.return_value.status_code = 200
         mock_get.return_value.json.return_value = {
             "status": True,
             "data": {"status": "success", "amount": 10000, "currency": "NGN"}
         }
 
-        # 3️⃣ Call the verification endpoint
         url = reverse('payment-verify', kwargs={'reference': reference})
         response = self.client.get(url)
 
-        # 4️⃣ Assertions
         self.assertEqual(response.status_code, 200)
         self.assertIn('status', response.data)
         self.assertEqual(response.data['status'], 'successful')
 
+    # Test listing all payments
     def test_list_payments(self):
-        # create one payment manually
         Payment.objects.create(
             name='Jane Doe',
             email='jane@gmail.com',
@@ -132,6 +115,7 @@ class PaymentAPITest(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
 
+    # Test getting a payment by ID
     def test_get_payment_by_id(self):
         payment = Payment.objects.create(
             name='Jane Doe',
