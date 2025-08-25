@@ -1,5 +1,4 @@
 from rest_framework.generics import CreateAPIView, RetrieveAPIView, ListAPIView
-from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 import os
@@ -49,50 +48,46 @@ class PaymentView(CreateAPIView):
         )
     
 
-class PaymentVerificationView(APIView):
-    def get(self, request, *args, **kwargs):
-        reference = request.query_params.get("reference") or request.query_params.get("trxref")
-        if not reference:
-            return Response({"detail": "No reference provided."}, status=status.HTTP_400_BAD_REQUEST)
+class PaymentVerificationView(RetrieveAPIView):
+    queryset = Payment.objects.all()
+    serializer_class = PaymentVerificationSerializer
+    lookup_field = "reference"
+    lookup_url_kwarg = "reference"
+
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()  # fetch payment by reference
 
         # Call Paystack verify endpoint
         headers = {
             'Authorization': f'Bearer {os.getenv("TEST_SECRET_KEY")}',
         }
         response = requests.get(
-            f"{os.getenv('VERIFY_URL')}/{reference}",
+            f"{os.getenv('VERIFY_URL')}/{instance.reference}",
             headers=headers,
             timeout=10
         )
-        response_data = response.json()
 
+        response_data = response.json()
         if response.status_code != 200 or not response_data.get('status'):
             return Response(
                 {"detail": "Failed to verify transaction with Paystack."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Update payment in DB
-        try:
-            instance = Payment.objects.get(reference=reference)
-        except Payment.DoesNotExist:
-            return Response({"detail": "Payment not found."}, status=status.HTTP_404_NOT_FOUND)
-
+        # Update payment status
         data = response_data.get('data', {})
         if data.get('status') == 'success':
             instance.status = 'successful'
-            instance.amount_received = Decimal(data.get('amount', 0)) / 100  # kobo → naira
+            amount_paid = Decimal(data.get('amount', 0)) / 100  # kobo → naira
+            instance.amount_received = amount_paid
         else:
             instance.status = 'failed'
 
         instance.save(update_fields=['status', 'amount_received'])
 
-        return Response({
-            "reference": reference,
-            "status": instance.status,
-            "amount_received": str(instance.amount_received),
-        }, status=status.HTTP_200_OK)
-
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class PaymentListAllTransactionView(ListAPIView):
