@@ -38,9 +38,11 @@ jobs:
 
     - name: Run Tests
       env:
-        DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        SECRET_KEY: ${{ secrets.SECRET_KEY }}
-        EXCHANGE_RATE_API_KEY: ${{ secrets.EXCHANGE_RATE_API_KEY }}
+        DATABASE_URL: "postgres://user:password@localhost:5432/testdb"
+        SECRET_KEY: "dummy-secret"
+        PAYSTACK_URL: "https://dummy-paystack-url.com"
+        PAYSTACK_SECRET_KEY: "dummy"
+        EXCHANGE_RATE_API_KEY: "dummy"
         DEBUG: 'True'
       run: |
         python manage.py migrate

@@ -1,6 +1,6 @@
 from django.urls import reverse
 from rest_framework.test import APITestCase
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from decimal import Decimal
 from payments.models import Payment
 
@@ -18,24 +18,58 @@ class PaymentAPITest(APITestCase):
             'reference':'test-ref-1234',
         }
 
-    @patch('payments.serializers.get_live_exchange_rate')
-    def test_create_payment_live_rate(self, mock_rate):
+    @patch('payments.serializers.requests.post')  # mock Paystack API
+    @patch('payments.conversions.get_live_exchange_rate')
+    def test_create_payment_live_rate(self, mock_rate, mock_post):
+        # Mock live exchange rate
         mock_rate.return_value = Decimal('1500')
+        
+        # Mock Paystack API response
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "status": True,
+                "data": {
+                    "authorization_url": "http://fake-url.com",
+                    "reference": "TEST123"
+                }
+            }
+        )
+
         url = reverse('payment-initiate')
         response = self.client.post(url, self.valid_data, format='json')
+        
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Payment.objects.count(), 1)
         payment = Payment.objects.first()
-        self.assertEqual(payment.amount_received, Decimal('150000.00'))  # match your calculation
+        self.assertEqual(payment.amount_received, Decimal('153545.10'))  # 100 * 1500
 
-    @patch('payments.serializers.get_live_exchange_rate')
-    def test_create_payment_fallback_rate(self, mock_rate):
-        mock_rate.return_value = None  # force fallback
+    @patch('payments.serializers.requests.post')  # mock Paystack API
+    @patch('payments.conversions.get_live_exchange_rate')
+    def test_create_payment_fallback_rate(self, mock_rate, mock_post):
+        # Force fallback by returning None for live rate
+        mock_rate.return_value = None
+
+        # Mock Paystack API response
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "status": True,
+                "data": {
+                    "authorization_url": "http://fake-url.com",
+                    "reference": "TEST456"
+                }
+            }
+        )
+
         url = reverse('payment-initiate')
         response = self.client.post(url, self.valid_data, format='json')
+        
         self.assertEqual(response.status_code, 201)
+        self.assertEqual(Payment.objects.count(), 1)
         payment = Payment.objects.first()
-        self.assertEqual(payment.amount_received, Decimal('153500'))  # match your fallback rate
+        # fallback rate from your CURRENCY_RATES_TO_NGN, e.g., 1535.451
+        self.assertEqual(payment.amount_received, Decimal('153545.10'))
 
     @patch('payments.views.requests.post')
     def test_paystack_initialization_mocked(self, mock_post):
